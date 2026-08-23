@@ -14,6 +14,7 @@ def apply_github_actions(
 ) -> Optional[Project]:
     """Execute actions. Returns the resulting Project (created or adopted), if any."""
     project: Optional[Project] = client.find_project(owner, project_title(repo))
+    existing_fields: Optional[dict] = None
 
     def ensure_project() -> Project:
         nonlocal project
@@ -23,14 +24,32 @@ def apply_github_actions(
             raise RuntimeError("field action planned without a project to attach to")
         return project
 
+    def fields_by_name() -> dict:
+        # Lazily list fields on the (now-existing) project. This is how we discover
+        # GitHub's built-in fields — notably the auto-created single-select "Status" —
+        # that the greenfield plan could not see because it ran before the project existed.
+        nonlocal existing_fields
+        if existing_fields is None:
+            existing_fields = {f.name: f for f in client.list_fields(ensure_project().id)}
+        return existing_fields
+
     for action in actions:
         if action.kind is GhActionKind.CREATE_PROJECT:
             project = client.create_project(action.data["owner"], action.data["title"])
+            existing_fields = None  # re-list to pick up built-in fields
         elif action.kind is GhActionKind.CREATE_FIELD:
             p = ensure_project()
-            client.create_field(
-                p.id, action.data["name"], action.data["data_type"], action.data["options"]
-            )
+            fields = fields_by_name()
+            name = action.data["name"]
+            if name in fields:
+                # field already exists (e.g. built-in Status): reconcile instead of recreating
+                if action.data["data_type"] == "SINGLE_SELECT":
+                    client.add_field_options(p.id, fields[name].id, action.data["options"])
+            else:
+                created = client.create_field(
+                    p.id, name, action.data["data_type"], action.data["options"]
+                )
+                fields[name] = created
         elif action.kind is GhActionKind.ADD_FIELD_OPTIONS:
             p = ensure_project()
             client.add_field_options(p.id, action.data["field_id"], action.data["options"])

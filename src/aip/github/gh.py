@@ -52,7 +52,7 @@ class GhGitHub:
             "... on ProjectV2SingleSelectField{options{name}}}}}}}"
         )
         out = self._run(
-            ["gh", "api", "graphql", "-f", f"query={query}", "-F", f"id={project_id}"], None
+            ["gh", "api", "graphql", "-f", f"query={query}", "-f", f"id={project_id}"], None
         )
         data = json.loads(out)
         nodes = data["data"]["node"]["fields"]["nodes"]
@@ -83,30 +83,88 @@ class GhGitHub:
     def create_field(
         self, project_id: str, name: str, data_type: str, options: list[str]
     ) -> Field:
-        query = (
-            "mutation($p:ID!,$n:String!,$t:ProjectV2CustomFieldType!,$o:[ProjectV2SingleSelectFieldOptionInput!]){"
-            "createProjectV2Field(input:{projectId:$p,name:$n,dataType:$t,singleSelectOptions:$o}){"
-            "projectV2Field{... on ProjectV2FieldCommon{id name dataType}}}}"
-        )
-        args = [
-            "gh", "api", "graphql", "-f", f"query={query}",
-            "-F", f"p={project_id}", "-f", f"n={name}", "-f", f"t={data_type}",
-        ]
-        opts_json = json.dumps(
-            [{"name": o, "color": "GRAY", "description": ""} for o in options]
-        )
-        args += ["-f", f"o={opts_json}"] if data_type == "SINGLE_SELECT" else []
+        # gh cannot bind a list-of-objects GraphQL variable via -f/-F, so the single-select
+        # options are inlined as GraphQL literals. Values come from the trusted standard;
+        # names are JSON-escaped (valid GraphQL string escaping for our characters).
+        result = "projectV2Field{... on ProjectV2FieldCommon{id name dataType}}"
+        if data_type == "SINGLE_SELECT":
+            literals = ", ".join(
+                f'{{name: {json.dumps(o)}, color: GRAY, description: ""}}' for o in options
+            )
+            query = (
+                "mutation($p:ID!,$n:String!){createProjectV2Field(input:{"
+                "projectId:$p,name:$n,dataType:SINGLE_SELECT,"
+                f"singleSelectOptions:[{literals}]}}){{{result}}}}}"
+            )
+            args = ["gh", "api", "graphql", "-f", f"query={query}",
+                    "-f", f"p={project_id}", "-f", f"n={name}"]
+        else:
+            query = (
+                "mutation($p:ID!,$n:String!,$t:ProjectV2CustomFieldType!){"
+                "createProjectV2Field(input:{projectId:$p,name:$n,dataType:$t}){"
+                f"{result}}}}}"
+            )
+            args = ["gh", "api", "graphql", "-f", f"query={query}",
+                    "-f", f"p={project_id}", "-f", f"n={name}", "-f", f"t={data_type}"]
         out = self._run(args, None)
         node = json.loads(out)["data"]["createProjectV2Field"]["projectV2Field"]
         return Field(id=node["id"], name=node["name"], data_type=node["dataType"], options=list(options))
 
-    def add_field_options(self, project_id: str, field_id: str, options: list[str]) -> Field:
-        # gh/GraphQL cannot append options to an existing single-select field in one supported
-        # call; document honestly and surface for manual follow-up rather than fake success.
-        raise NotImplementedError(
-            "Appending options to an existing single-select field is not supported by the GitHub "
-            "API via gh. Add these options once in the Project UI: " + ", ".join(options)
+    # GitHub creates this exact single-select set on every new Project v2's built-in Status
+    # field. When we find precisely these, it is safe to replace them on a fresh project.
+    _GH_DEFAULT_STATUS = {"Todo", "In Progress", "Done"}
+
+    def _single_select_options(self, project_id: str, field_id: str) -> list[tuple[str, str]]:
+        query = (
+            "query($id:ID!){node(id:$id){... on ProjectV2{fields(first:50){nodes{"
+            "... on ProjectV2FieldCommon{id} "
+            "... on ProjectV2SingleSelectField{id options{name color}}}}}}}"
         )
+        out = self._run(
+            ["gh", "api", "graphql", "-f", f"query={query}", "-f", f"id={project_id}"], None
+        )
+        nodes = json.loads(out)["data"]["node"]["fields"]["nodes"]
+        for n in nodes:
+            if n and n.get("id") == field_id:
+                return [(o["name"], o.get("color", "GRAY")) for o in n.get("options", [])]
+        return []
+
+    def add_field_options(self, project_id: str, field_id: str, options: list[str]) -> Field:
+        """Add the given option names to an existing single-select field.
+
+        updateProjectV2Field replaces the full option list (matching by name preserves
+        existing options' item associations). To stay safe:
+        - if the field holds exactly GitHub's default Status set, replace it outright
+          (a fresh project — nothing is in use);
+        - otherwise union existing options with the new ones so nothing is destroyed.
+        """
+        existing = self._single_select_options(project_id, field_id)
+        existing_names = [n for n, _ in existing]
+
+        if set(existing_names) == self._GH_DEFAULT_STATUS:
+            base: list[tuple[str, str]] = []
+        else:
+            base = existing
+
+        final = list(base)
+        have = {n for n, _ in final}
+        for name in options:
+            if name not in have:
+                final.append((name, "GRAY"))
+                have.add(name)
+
+        literals = ", ".join(
+            f'{{name: {json.dumps(n)}, color: {c}, description: ""}}' for n, c in final
+        )
+        result = "projectV2Field{... on ProjectV2FieldCommon{id name}}"
+        query = (
+            "mutation($f:ID!){updateProjectV2Field(input:{fieldId:$f,"
+            f"singleSelectOptions:[{literals}]}}){{{result}}}}}"
+        )
+        out = self._run(["gh", "api", "graphql", "-f", f"query={query}", "-f", f"f={field_id}"], None)
+        node = json.loads(out)["data"]["updateProjectV2Field"]["projectV2Field"]
+        return Field(id=node["id"], name=node["name"], data_type="SINGLE_SELECT",
+                     options=[n for n, _ in final])
 
     def create_label(self, repo: str, name: str, color: str, description: str) -> None:
         self._run(

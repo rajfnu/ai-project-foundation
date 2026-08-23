@@ -55,3 +55,21 @@ def test_existing_project_is_adopted_not_recreated():
     apply_github_actions(client, "acme", "widget", actions)
     projects = client.projects_for("acme")
     assert len(projects) == 1 and projects[0].id == existing.id
+
+
+def test_partial_single_select_plans_full_desired_options():
+    """A partial Status field must plan the FULL required option set, not just the
+    missing subset — otherwise an option whose name collides with a GitHub default can
+    be dropped when defaults are replaced."""
+    from aip.standard import STATUS_STAGES, project_title
+
+    client = make_client()
+    project = client.create_project("acme", project_title("widget"))
+    # built-in Status field holds only one of the required stages
+    client.set_field_options(project.id, "Status", ["Done"])
+
+    actions = plan_github_actions(client, "acme", "widget")
+    status_action = next(a for a in actions if a.target == "Status")
+
+    assert status_action.kind.name == "ADD_FIELD_OPTIONS"
+    assert set(status_action.data["options"]) == set(STATUS_STAGES)

@@ -51,10 +51,78 @@ def test_create_label_invokes_gh_label_create():
     assert "--repo" in call and "acme/widget" in call
 
 
-def test_add_field_options_reports_api_limitation():
-    client = GhGitHub(runner=RecordingRunner([]))
-    try:
-        client.add_field_options("PVT_x", "FLD_1", ["New Option"])
-        assert False, "expected NotImplementedError"
-    except NotImplementedError as exc:
-        assert "New Option" in str(exc)
+def test_create_single_select_field_inlines_options_in_query():
+    captured = {}
+
+    def runner(args, stdin):
+        captured["args"] = args
+        return json.dumps(
+            {"data": {"createProjectV2Field": {"projectV2Field": {
+                "id": "F1", "name": "Status", "dataType": "SINGLE_SELECT"}}}}
+        )
+
+    field = GhGitHub(runner=runner).create_field("PVT_1", "Status", "SINGLE_SELECT", ["Backlog", "Done"])
+
+    assert field.id == "F1"
+    query = next(a for a in captured["args"] if a.startswith("query="))
+    # options must be inlined as GraphQL literals, not passed as a JSON string variable
+    assert "Backlog" in query and "Done" in query
+    assert not any(a.startswith("o=") for a in captured["args"])
+
+
+def test_create_text_field_has_no_options():
+    captured = {}
+
+    def runner(args, stdin):
+        captured["args"] = args
+        return json.dumps(
+            {"data": {"createProjectV2Field": {"projectV2Field": {
+                "id": "F2", "name": "Build / Slice", "dataType": "TEXT"}}}}
+        )
+
+    GhGitHub(runner=runner).create_field("PVT_1", "Build / Slice", "TEXT", [])
+
+    query = next(a for a in captured["args"] if a.startswith("query="))
+    assert "singleSelectOptions" not in query
+
+
+def _options_query_response(options):
+    return json.dumps({"data": {"node": {"fields": {"nodes": [
+        {"id": "FLD_1", "options": [{"name": n, "color": c} for n, c in options]},
+    ]}}}})
+
+
+def _update_response():
+    return json.dumps({"data": {"updateProjectV2Field": {"projectV2Field": {"id": "FLD_1", "name": "Status"}}}})
+
+
+def test_add_field_options_replaces_github_default_status():
+    # a fresh project's built-in Status has exactly Todo/In Progress/Done — safe to replace
+    runner = RecordingRunner([
+        (lambda a: "fields(first" in _query(a), _options_query_response(
+            [("Todo", "GRAY"), ("In Progress", "YELLOW"), ("Done", "GREEN")])),
+        (lambda a: "updateProjectV2Field" in _query(a), _update_response()),
+    ])
+    GhGitHub(runner=runner).add_field_options("PVT_x", "FLD_1", ["Backlog", "Implementing"])
+
+    update = next(_query(a) for a in runner.calls if "updateProjectV2Field" in _query(a))
+    assert "Backlog" in update and "Implementing" in update
+    assert "Todo" not in update  # defaults replaced, not kept
+
+
+def test_add_field_options_preserves_existing_custom_options():
+    runner = RecordingRunner([
+        (lambda a: "fields(first" in _query(a), _options_query_response([("Spike", "BLUE")])),
+        (lambda a: "updateProjectV2Field" in _query(a), _update_response()),
+    ])
+    GhGitHub(runner=runner).add_field_options("PVT_x", "FLD_1", ["Backlog"])
+
+    update = next(_query(a) for a in runner.calls if "updateProjectV2Field" in _query(a))
+    assert "Spike" in update and "Backlog" in update  # custom option preserved, new one added
+
+
+def _query(args):
+    for a in args:
+        if a.startswith("query="):
+            return a
+    return ""

@@ -65,7 +65,9 @@ def plan_github_actions(client: GitHubClient, owner: str, repo: str) -> list[GhA
                         GhActionKind.ADD_FIELD_OPTIONS,
                         spec.name,
                         reason=f"missing options: {', '.join(missing)}",
-                        data={"field_id": field.id, "options": missing},  # type: ignore[attr-defined]
+                        # pass the FULL desired set so the applier can safely reconcile
+                        # even when a required name collides with a GitHub default option.
+                        data={"field_id": field.id, "options": list(spec.options)},  # type: ignore[attr-defined]
                     )
                 )
 

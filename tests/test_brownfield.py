@@ -28,10 +28,10 @@ def make_brownfield(tmp_path: Path) -> Path:
 
 def make_partial_github() -> FakeGitHub:
     client = FakeGitHub("acme", "widget", labels=["bug", "aip:blocked"])
-    # a Project already exists with one fully-formed field
+    # a Project already exists with its (built-in) Status field fully reconciled
     project = client.create_project("acme", project_title("widget"))
     status = next(f for f in REQUIRED_FIELDS if f.name == "Status")
-    client.create_field(project.id, status.name, status.data_type, status.options)
+    client.set_field_options(project.id, status.name, status.options)
     return client
 
 
