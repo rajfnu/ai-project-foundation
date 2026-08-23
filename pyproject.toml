@@ -1,0 +1,32 @@
+[project]
+name = "aip"
+version = "0.1.0"
+description = "AI Project Foundation — stamp a disciplined, visual AI-development operating model onto any GitHub repo."
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+    "typer>=0.12",
+    "pyyaml>=6.0",
+]
+
+[project.scripts]
+aip = "aip.cli:app"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/aip"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.uv]
+package = true
