@@ -18,6 +18,45 @@ copies no customer data, secrets, prompts, or application code.
   duplicate) repository state.
 - **A lightweight protocol** — ACK / GO / CHECK / FIX / TECHNICALLY ACCEPTED.
 
+## Getting started
+
+### Prerequisites
+- **Python 3.9+**
+- **[GitHub CLI](https://cli.github.com/) (`gh`)**, authenticated with the `project` scope:
+  ```bash
+  gh auth login
+  gh auth refresh -s project        # grant Projects v2 access (needed to create the board)
+  ```
+  (You can skip `gh` entirely and manage only the repository files with `--no-github`.)
+
+### Install
+Not yet published to PyPI — install from a clone:
+```bash
+git clone https://github.com/rajfnu/ai-project-foundation.git
+cd ai-project-foundation
+uv tool install .          # puts `aip` on your PATH  (or: pipx install .)
+aip version
+```
+For local development instead, use an editable install: `uv sync && uv pip install -e .`.
+
+### Quickstart
+```bash
+cd your-repo                # a new/empty repo OR an existing project
+
+aip setup --dry-run        # audit + see exactly what would change (mutates nothing)
+aip setup                  # review the plan, confirm, and apply only what's missing
+aip health                 # confirm COMPLIANT
+
+# day-to-day: record transitions in the repo, then reflect them on the board
+aip handoff GO --slice "Build 001A" --note "implement search"
+aip handoff CHECK
+aip handoff TECHNICALLY-ACCEPTED --by Reviewer
+aip sync                   # push current status to the GitHub Project
+```
+Running against an existing project (brownfield) is safe: `aip setup` audits first, adds
+only what's missing, and never overwrites your code, history, issues, PRs, or the human
+parts of `AGENTS.md`/`CLAUDE.md`. Use `--dry-run` first to preview.
+
 ## Commands
 
 ```bash
@@ -51,11 +90,12 @@ aip version
 
 ## GitHub automation & honest limits
 
-`aip` fully automates creating the Project and **all custom fields/options** via `gh` and
-the GitHub GraphQL API. The Projects (v2) API does not expose reliable creation of *view
-layouts*; those four views are a documented one-time manual step (see
-`docs/process/github-project-views.md`, generated at setup). Everything else is automated
-and verified by `aip health`.
+`aip` fully automates creating the Project, **all custom fields/options**, and the four
+**views** (Delivery Board, Current Work, Decisions / Blockers, Accepted / History) via `gh`
+and the GitHub GraphQL API — layout, filter, and visible columns included. The one honest
+limitation is *custom grouping* for a Table view, which the Projects (v2) API doesn't expose
+(a Board layout auto-groups by Status); it's documented in `docs/process/github-project-views.md`,
+generated at setup. Everything else is automated and verified by `aip health`.
 
 The repository (`docs/status/current.yml`) is the source of truth; the Project is its
 visual projection (`docs/process/github-sync.md`).
@@ -78,8 +118,9 @@ workflow: { independent_review_required: true }
 
 ```bash
 uv sync
-uv run pytest        # 38 tests, offline (GitHub behind a fake client)
+uv run pytest        # 73 tests, offline (GitHub behind a fake client)
 uv run aip --help
 ```
 
-The standard is versioned (`standard_version`) so a future `aip upgrade` has an anchor.
+The standard is versioned (`standard_version`); `aip upgrade` migrates an adopted repo to
+the current version.
