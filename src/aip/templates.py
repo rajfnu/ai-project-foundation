@@ -88,10 +88,14 @@ STATUS_CURRENT_MD = """\
 
 STATUS_CURRENT_YML = """\
 # Machine-readable mirror of docs/status/current.md (source of truth for `aip sync`).
-build_slice: null
-current_actor: null
+# `aip sync` pushes these values into the GitHub Project item for the current slice.
+status: null           # one of the 9 Status stages (Board column), e.g. Implementing
+build_slice: null      # e.g. Build 005A
+current_actor: null    # Human | Architect | Developer | Reviewer | Customer
 next_actor: null
-review_status: null
+review_status: null    # ACK | GO | CHECK | FIX | TECHNICALLY ACCEPTED
+priority: null         # P0 | P1 | P2 | P3
+customer_ready: null   # No | Ready | In Testing | Signed Off
 implementer: null      # actor who implemented the current slice (enforces the acceptance invariant)
 acceptor: null         # actor who technically accepted it, if any
 open_human_decisions: []

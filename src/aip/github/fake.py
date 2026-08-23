@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from aip.github.client import Field, Project
+from aip.github.client import Field, Item, Project
 
 
 class FakeGitHub:
@@ -19,6 +19,7 @@ class FakeGitHub:
         self._projects: dict[str, list[Project]] = {}
         self._fields: dict[str, list[Field]] = {}
         self._labels: dict[str, list[str]] = {f"{owner}/{repo}": list(labels or [])}
+        self._items: dict[str, list[Item]] = {}
         self._seq = 0
 
     def _next(self, prefix: str) -> str:
@@ -80,6 +81,21 @@ class FakeGitHub:
         labels = self._labels.setdefault(repo, [])
         if name not in labels:
             labels.append(name)
+
+    def list_items(self, project_id: str) -> list[Item]:
+        return list(self._items.get(project_id, []))
+
+    def add_draft_item(self, project_id: str, title: str) -> Item:
+        item = Item(id=self._next("ITM"), title=title, values={})
+        self._items.setdefault(project_id, []).append(item)
+        return item
+
+    def set_field_value(self, project_id: str, item_id: str, field: Field, value: str) -> None:
+        for item in self._items.get(project_id, []):
+            if item.id == item_id:
+                item.values[field.name] = value
+                return
+        raise KeyError(item_id)
 
     # --- test helpers ---
     def projects_for(self, owner: str) -> list[Project]:

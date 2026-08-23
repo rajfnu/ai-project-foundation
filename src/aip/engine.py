@@ -32,6 +32,7 @@ class SetupReport:
     github_actions: list[GhAction]
     dry_run: bool
     applied: bool
+    sync: "Optional[SyncReport]" = None
 
     @property
     def total_actions(self) -> int:
@@ -72,9 +73,17 @@ def run_setup(
     # stamp the resolved project into state (idempotent)
     state_mod.write_project(root, project)
 
+    # Project the current slice onto the board — but only once a real slice exists, so a
+    # fresh greenfield setup doesn't leave an empty placeholder card.
+    sync_report = None
+    if github_enabled and client is not None and project is not None:
+        status = _read_status_yml(root)
+        if status.get("build_slice") or status.get("status"):
+            sync_report = run_sync(root, client, owner, repo)
+
     return SetupReport(
         file_findings, github_findings, file_actions, github_actions,
-        dry_run=False, applied=True,
+        dry_run=False, applied=True, sync=sync_report,
     )
 
 
@@ -182,6 +191,67 @@ def run_health(
     checks.append(_independent_review_check(status))
 
     return HealthReport(checks=checks, snapshot=status)
+
+
+# --- sync -----------------------------------------------------------------------------
+
+# repository status key -> GitHub Project field name
+_SYNC_FIELD_MAP = {
+    "status": "Status",
+    "build_slice": "Build / Slice",
+    "current_actor": "Current Actor",
+    "next_actor": "Next Actor",
+    "review_status": "Review Status",
+    "priority": "Priority",
+    "customer_ready": "Customer Ready",
+}
+
+
+@dataclass
+class SyncReport:
+    item_title: str
+    fields_set: dict
+    created: bool
+
+
+def _coerce_value(value) -> str:
+    # YAML 1.1 parses No/Yes/Off/On as booleans; map back to the option names we use.
+    if isinstance(value, bool):
+        return "Yes" if value else "No"
+    return str(value)
+
+
+def run_sync(root: Path, client: GitHubClient, owner: str, repo: str) -> SyncReport:
+    """Push docs/status/current.yml into the current slice's Project item (one-way)."""
+    from aip.standard import project_title
+
+    status = _read_status_yml(root)
+    project = client.find_project(owner, project_title(repo))
+    if project is None:
+        raise RuntimeError("no GitHub Project found — run `aip setup` first")
+
+    fields = {f.name: f for f in client.list_fields(project.id)}
+    title = status.get("build_slice") or "Current Slice"
+
+    item = next((i for i in client.list_items(project.id) if i.title == title), None)
+    created = False
+    if item is None:
+        item = client.add_draft_item(project.id, title)
+        created = True
+
+    fields_set: dict = {}
+    for key, field_name in _SYNC_FIELD_MAP.items():
+        value = status.get(key)
+        if value is None:
+            continue
+        field_obj = fields.get(field_name)
+        if field_obj is None:
+            continue
+        display = _coerce_value(value)
+        client.set_field_value(project.id, item.id, field_obj, display)
+        fields_set[field_name] = display
+
+    return SyncReport(item_title=title, fields_set=fields_set, created=created)
 
 
 def _worst(statuses: list[Status]) -> Status:

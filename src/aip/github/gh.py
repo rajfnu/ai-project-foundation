@@ -11,7 +11,7 @@ import json
 import subprocess
 from typing import Callable, Optional
 
-from aip.github.client import Field, Project
+from aip.github.client import Field, Item, Project
 
 Runner = Callable[[list[str], Optional[str]], str]
 
@@ -174,3 +174,70 @@ class GhGitHub:
             ],
             None,
         )
+
+    # --- project items (used by `aip sync`) ---
+    def list_items(self, project_id: str) -> list[Item]:
+        query = (
+            "query($id:ID!){node(id:$id){... on ProjectV2{items(first:100){nodes{id content{"
+            "... on DraftIssue{title} ... on Issue{title} ... on PullRequest{title}}}}}}}"
+        )
+        out = self._run(
+            ["gh", "api", "graphql", "-f", f"query={query}", "-f", f"id={project_id}"], None
+        )
+        nodes = json.loads(out)["data"]["node"]["items"]["nodes"]
+        items: list[Item] = []
+        for n in nodes:
+            title = (n.get("content") or {}).get("title", "")
+            items.append(Item(id=n["id"], title=title, values={}))
+        return items
+
+    def add_draft_item(self, project_id: str, title: str) -> Item:
+        query = (
+            "mutation($p:ID!,$t:String!){addProjectV2DraftIssue(input:{projectId:$p,title:$t}){"
+            "projectItem{id}}}"
+        )
+        out = self._run(
+            ["gh", "api", "graphql", "-f", f"query={query}", "-f", f"p={project_id}", "-f", f"t={title}"],
+            None,
+        )
+        item_id = json.loads(out)["data"]["addProjectV2DraftIssue"]["projectItem"]["id"]
+        return Item(id=item_id, title=title, values={})
+
+    def _option_id(self, project_id: str, field_id: str, name: str) -> Optional[str]:
+        query = (
+            "query($id:ID!){node(id:$id){... on ProjectV2{fields(first:50){nodes{"
+            "... on ProjectV2SingleSelectField{id options{id name}}}}}}}"
+        )
+        out = self._run(
+            ["gh", "api", "graphql", "-f", f"query={query}", "-f", f"id={project_id}"], None
+        )
+        for n in json.loads(out)["data"]["node"]["fields"]["nodes"]:
+            if n and n.get("id") == field_id:
+                for opt in n.get("options", []):
+                    if opt["name"] == name:
+                        return opt["id"]
+        return None
+
+    def set_field_value(self, project_id: str, item_id: str, field: Field, value: str) -> None:
+        # input:{...value:{...}} — note the brace that closes the input object before ")".
+        head = "updateProjectV2ItemFieldValue(input:{projectId:$p,itemId:$i,fieldId:$f,"
+        tail = "}){projectV2Item{id}}}"
+        args = ["gh", "api", "graphql"]
+        if field.data_type == "SINGLE_SELECT":
+            option_id = self._option_id(project_id, field.id, value)
+            if option_id is None:
+                raise RuntimeError(f"option {value!r} not found on field {field.name!r}")
+            query = (
+                "mutation($p:ID!,$i:ID!,$f:ID!,$o:String!){"
+                + head + "value:{singleSelectOptionId:$o}" + tail
+            )
+            args += ["-f", f"query={query}", "-f", f"p={project_id}", "-f", f"i={item_id}",
+                     "-f", f"f={field.id}", "-f", f"o={option_id}"]
+        else:
+            query = (
+                "mutation($p:ID!,$i:ID!,$f:ID!,$v:String!){"
+                + head + "value:{text:$v}" + tail
+            )
+            args += ["-f", f"query={query}", "-f", f"p={project_id}", "-f", f"i={item_id}",
+                     "-f", f"f={field.id}", "-f", f"v={value}"]
+        self._run(args, None)

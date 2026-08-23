@@ -22,6 +22,7 @@ copies no customer data, secrets, prompts, or application code.
 
 ```bash
 aip setup [--dry-run] [--yes] [--no-github] [--path DIR]
+aip sync  [--path DIR]
 aip health [--no-github] [--path DIR]
 aip version
 ```
@@ -30,6 +31,11 @@ aip version
   It is idempotent (a second run reports `Already compliant`) and never overwrites human
   content — `AGENTS.md`/`CLAUDE.md` are edited only inside a fenced `AIP:BEGIN…AIP:END`
   block. `--dry-run` shows the exact plan and mutates nothing.
+- `aip sync` reads `docs/status/current.yml` and pushes the current slice onto the GitHub
+  Project as a single item (Status, Build / Slice, Current/Next Actor, Review Status,
+  Priority, Customer Ready). One-way and idempotent — the repository is the source of
+  truth, the board is its projection. `aip setup` runs it automatically once a real slice
+  exists (a fresh greenfield setup leaves no placeholder card).
 - `aip health` reports PASS/FAIL against each requirement plus the current slice snapshot,
   and enforces the independent-review invariant. Exit code is non-zero when not compliant.
 

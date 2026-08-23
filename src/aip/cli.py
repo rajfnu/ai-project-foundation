@@ -7,7 +7,7 @@ from pathlib import Path
 import typer
 
 from aip import __version__, render
-from aip.engine import run_health, run_setup
+from aip.engine import run_health, run_setup, run_sync
 from aip.github.gh import GhGitHub
 from aip.preflight import PreflightError, ensure_gh, resolve_repo
 from aip.standard import STANDARD_VERSION
@@ -70,6 +70,30 @@ def setup(
     applied = run_setup(root, client, owner, repo, dry_run=False, github_enabled=not no_github)
     typer.echo("")
     typer.echo(render.render_setup_result(applied))
+    if applied.sync is not None:
+        typer.echo(
+            f"Synced slice '{applied.sync.item_title}' to the Project "
+            f"({len(applied.sync.fields_set)} field(s))."
+        )
+
+
+@app.command()
+def sync(
+    path: Path = typer.Option(Path("."), "--path", help="Repository root.", show_default=False),
+) -> None:
+    """Push docs/status/current.yml into the current slice's GitHub Project item (one-way)."""
+    client, owner, repo = _prepare(no_github=False)
+    root = path.resolve()
+    try:
+        report = run_sync(root, client, owner, repo)
+    except RuntimeError as exc:
+        typer.secho(str(exc), fg=typer.colors.RED, err=True)
+        raise typer.Exit(code=2)
+    verb = "Created" if report.created else "Updated"
+    typer.echo(
+        f"{verb} Project item '{report.item_title}' — set {len(report.fields_set)} field(s): "
+        f"{', '.join(report.fields_set) or '(none)'}"
+    )
 
 
 @app.command()

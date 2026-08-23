@@ -126,3 +126,71 @@ def _query(args):
         if a.startswith("query="):
             return a
     return ""
+
+
+def _balanced(q: str) -> bool:
+    depth = {"{": 0, "(": 0}
+    pairs = {"}": "{", ")": "("}
+    for ch in q:
+        if ch in depth:
+            depth[ch] += 1
+        elif ch in pairs:
+            depth[pairs[ch]] -= 1
+            if depth[pairs[ch]] < 0:
+                return False
+    return depth["{"] == 0 and depth["("] == 0
+
+
+def test_all_graphql_queries_are_brace_balanced():
+    from aip.github.client import Field
+    runner = RecordingRunner([(lambda a: True, json.dumps({"data": {
+        "node": {"fields": {"nodes": [{"id": "F_sel", "options": [{"id": "O1", "name": "X"}]}]}},
+        "createProjectV2Field": {"projectV2Field": {"id": "F", "name": "N", "dataType": "TEXT"}},
+        "updateProjectV2Field": {"projectV2Field": {"id": "F", "name": "N"}},
+        "addProjectV2DraftIssue": {"projectItem": {"id": "I"}},
+        "updateProjectV2ItemFieldValue": {"projectV2Item": {"id": "I"}},
+    }}))])
+    c = GhGitHub(runner=runner)
+    c.create_field("P", "Status", "SINGLE_SELECT", ["A", "B"])
+    c.create_field("P", "Slice", "TEXT", [])
+    c.add_draft_item("P", "S1")
+    c.set_field_value("P", "I", Field("F_sel", "Status", "SINGLE_SELECT", ["X"]), "X")
+    c.set_field_value("P", "I", Field("F_txt", "Slice", "TEXT", []), "v")
+    for call in runner.calls:
+        q = _query(call)
+        if q:
+            assert _balanced(q), q
+
+
+def test_add_draft_item_uses_draft_issue_mutation():
+    runner = RecordingRunner([(lambda a: True, json.dumps(
+        {"data": {"addProjectV2DraftIssue": {"projectItem": {"id": "ITM_1"}}}}))])
+    item = GhGitHub(runner=runner).add_draft_item("PVT_1", "Build 005A")
+    assert item.id == "ITM_1" and item.title == "Build 005A"
+    assert "addProjectV2DraftIssue" in _query(runner.calls[0])
+
+
+def test_set_field_value_text_uses_text_value():
+    from aip.github.client import Field
+    runner = RecordingRunner([(lambda a: True, json.dumps(
+        {"data": {"updateProjectV2ItemFieldValue": {"projectV2Item": {"id": "ITM_1"}}}}))])
+    GhGitHub(runner=runner).set_field_value(
+        "PVT_1", "ITM_1", Field("F_txt", "Build / Slice", "TEXT", []), "Build 005A")
+    q = _query(runner.calls[0])
+    assert "updateProjectV2ItemFieldValue" in q and "text:" in q
+
+
+def test_set_field_value_single_select_resolves_option_id():
+    from aip.github.client import Field
+    runner = RecordingRunner([
+        (lambda a: "options{id name}" in _query(a) or "options{name id}" in _query(a) or "options" in _query(a) and "fields(first" in _query(a),
+         json.dumps({"data": {"node": {"fields": {"nodes": [
+             {"id": "F_sel", "options": [{"id": "OPT_impl", "name": "Implementing"}]}]}}}})),
+        (lambda a: "updateProjectV2ItemFieldValue" in _query(a),
+         json.dumps({"data": {"updateProjectV2ItemFieldValue": {"projectV2Item": {"id": "ITM_1"}}}})),
+    ])
+    GhGitHub(runner=runner).set_field_value(
+        "PVT_1", "ITM_1", Field("F_sel", "Status", "SINGLE_SELECT", ["Implementing"]), "Implementing")
+    update = next(_query(a) for a in runner.calls if "updateProjectV2ItemFieldValue" in _query(a))
+    assert "singleSelectOptionId" in update
+    assert any("OPT_impl" in str(a) for a in runner.calls)
