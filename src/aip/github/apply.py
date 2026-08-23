@@ -53,6 +53,16 @@ def apply_github_actions(
         elif action.kind is GhActionKind.ADD_FIELD_OPTIONS:
             p = ensure_project()
             client.add_field_options(p.id, action.data["field_id"], action.data["options"])
+        elif action.kind is GhActionKind.CREATE_VIEW:
+            p = ensure_project()
+            view = client.create_view(p.id, action.data["name"], action.data["layout"])
+            visible_ids = [
+                fields_by_name()[n].id
+                for n in action.data["visible_fields"]
+                if n in fields_by_name()
+            ]
+            if action.data["filter"] or visible_ids:
+                client.update_view(p.id, view.id, action.data["filter"], visible_ids)
         elif action.kind is GhActionKind.CREATE_LABEL:
             client.create_label(
                 f"{owner}/{repo}",

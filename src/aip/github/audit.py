@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from aip.audit import Finding, Status
 from aip.github.client import GitHubClient
-from aip.standard import REQUIRED_FIELDS, REQUIRED_LABELS, project_title
+from aip.standard import REQUIRED_FIELDS, REQUIRED_LABELS, REQUIRED_VIEWS, project_title
 
 
 def audit_github(client: GitHubClient, owner: str, repo: str) -> list[Finding]:
@@ -15,9 +15,11 @@ def audit_github(client: GitHubClient, owner: str, repo: str) -> list[Finding]:
         findings.append(
             Finding("github_project", "GitHub Project", Status.MISSING, "no matching project")
         )
-        # fields can't exist without a project
+        # fields and views can't exist without a project
         for spec in REQUIRED_FIELDS:
             findings.append(Finding(f"field:{spec.name}", f"Field: {spec.name}", Status.MISSING))
+        for view in REQUIRED_VIEWS:
+            findings.append(Finding(f"view:{view.name}", f"View: {view.name}", Status.MISSING))
         findings.append(_labels_finding(client, owner, repo))
         return findings
 
@@ -43,6 +45,11 @@ def audit_github(client: GitHubClient, owner: str, repo: str) -> list[Finding]:
             )
         else:
             findings.append(Finding(f"field:{spec.name}", f"Field: {spec.name}", Status.PRESENT))
+
+    existing_views = {v.name for v in client.list_views(project.id)}
+    for view in REQUIRED_VIEWS:
+        status = Status.PRESENT if view.name in existing_views else Status.MISSING
+        findings.append(Finding(f"view:{view.name}", f"View: {view.name}", status))
 
     findings.append(_labels_finding(client, owner, repo))
     return findings

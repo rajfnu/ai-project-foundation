@@ -7,13 +7,14 @@ from dataclasses import dataclass, field as dc_field
 from typing import Optional
 
 from aip.github.client import GitHubClient
-from aip.standard import REQUIRED_FIELDS, REQUIRED_LABELS, project_title
+from aip.standard import REQUIRED_FIELDS, REQUIRED_LABELS, REQUIRED_VIEWS, project_title
 
 
 class GhActionKind(enum.Enum):
     CREATE_PROJECT = "create GitHub Project"
     CREATE_FIELD = "create Project field"
     ADD_FIELD_OPTIONS = "add options to Project field"
+    CREATE_VIEW = "create Project view"
     CREATE_LABEL = "create label"
 
 
@@ -70,6 +71,26 @@ def plan_github_actions(client: GitHubClient, owner: str, repo: str) -> list[GhA
                         data={"field_id": field.id, "options": list(spec.options)},  # type: ignore[attr-defined]
                     )
                 )
+
+    # Views are created once (not re-reconciled) so human tweaks aren't overwritten.
+    existing_views = (
+        {v.name for v in client.list_views(project.id)} if project is not None else set()
+    )
+    for view in REQUIRED_VIEWS:
+        if view.name not in existing_views:
+            actions.append(
+                GhAction(
+                    GhActionKind.CREATE_VIEW,
+                    view.name,
+                    reason="missing view",
+                    data={
+                        "name": view.name,
+                        "layout": view.layout,
+                        "filter": view.filter,
+                        "visible_fields": list(view.visible_fields),
+                    },
+                )
+            )
 
     existing_labels = set(client.list_labels(f"{owner}/{repo}"))
     for label in REQUIRED_LABELS:

@@ -11,7 +11,7 @@ import json
 import subprocess
 from typing import Callable, Optional
 
-from aip.github.client import Field, Item, Project
+from aip.github.client import Field, Item, Project, View
 
 Runner = Callable[[list[str], Optional[str]], str]
 
@@ -217,6 +217,44 @@ class GhGitHub:
                     if opt["name"] == name:
                         return opt["id"]
         return None
+
+    # --- project views (used by setup) ---
+    def list_views(self, project_id: str) -> list[View]:
+        query = (
+            "query($id:ID!){node(id:$id){... on ProjectV2{views(first:50){nodes{"
+            "id name layout}}}}}"
+        )
+        out = self._run(
+            ["gh", "api", "graphql", "-f", f"query={query}", "-f", f"id={project_id}"], None
+        )
+        nodes = json.loads(out)["data"]["node"]["views"]["nodes"]
+        return [View(id=n["id"], name=n["name"], layout=n["layout"]) for n in nodes if n]
+
+    def create_view(self, project_id: str, name: str, layout: str) -> View:
+        # layout is an enum, inlined as a GraphQL literal (values come from the standard).
+        query = (
+            "mutation($p:ID!,$n:String!){createProjectV2View(input:{projectId:$p,name:$n,"
+            f"layout:{layout}}}){{projectV2View{{id name layout}}}}}}"
+        )
+        out = self._run(
+            ["gh", "api", "graphql", "-f", f"query={query}", "-f", f"p={project_id}", "-f", f"n={name}"],
+            None,
+        )
+        n = json.loads(out)["data"]["createProjectV2View"]["projectV2View"]
+        return View(id=n["id"], name=n["name"], layout=n["layout"])
+
+    def update_view(
+        self, project_id: str, view_id: str, filter: str, visible_field_ids: list
+    ) -> None:
+        ids = ", ".join(json.dumps(i) for i in visible_field_ids)
+        query = (
+            "mutation($v:ID!,$f:String!){updateProjectV2View(input:{viewId:$v,filter:$f,"
+            f"configuration:{{visibleFieldIds:[{ids}]}}}}){{projectV2View{{id}}}}}}"
+        )
+        self._run(
+            ["gh", "api", "graphql", "-f", f"query={query}", "-f", f"v={view_id}", "-f", f"f={filter}"],
+            None,
+        )
 
     def set_field_value(self, project_id: str, item_id: str, field: Field, value: str) -> None:
         # input:{...value:{...}} — note the brace that closes the input object before ")".

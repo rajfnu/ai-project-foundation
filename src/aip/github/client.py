@@ -37,6 +37,15 @@ class Item:
     values: dict = field(default_factory=dict)  # field name -> value (as displayed)
 
 
+@dataclass
+class View:
+    id: str
+    name: str
+    layout: str  # "BOARD_LAYOUT" | "TABLE_LAYOUT" | "ROADMAP_LAYOUT"
+    filter: str = ""
+    visible_field_ids: list = field(default_factory=list)
+
+
 class GitHubClient(Protocol):
     # --- read ---
     def find_project(self, owner: str, title: str) -> Optional[Project]: ...
@@ -54,4 +63,9 @@ class GitHubClient(Protocol):
     def add_draft_item(self, project_id: str, title: str) -> Item: ...
     def set_field_value(
         self, project_id: str, item_id: str, field: Field, value: str
+    ) -> None: ...
+    def list_views(self, project_id: str) -> list[View]: ...
+    def create_view(self, project_id: str, name: str, layout: str) -> View: ...
+    def update_view(
+        self, project_id: str, view_id: str, filter: str, visible_field_ids: list
     ) -> None: ...

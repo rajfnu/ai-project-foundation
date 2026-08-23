@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from aip.github.client import Field, Item, Project
+from aip.github.client import Field, Item, Project, View
 
 
 class FakeGitHub:
@@ -20,6 +20,7 @@ class FakeGitHub:
         self._fields: dict[str, list[Field]] = {}
         self._labels: dict[str, list[str]] = {f"{owner}/{repo}": list(labels or [])}
         self._items: dict[str, list[Item]] = {}
+        self._views: dict[str, list[View]] = {}
         self._seq = 0
 
     def _next(self, prefix: str) -> str:
@@ -50,6 +51,10 @@ class FakeGitHub:
         self._fields[project.id] = [
             Field(id=self._next("FLD"), name="Status", data_type="SINGLE_SELECT",
                   options=["Todo", "In Progress", "Done"])
+        ]
+        # Mirror GitHub: a new project ships with one default table view.
+        self._views[project.id] = [
+            View(id=self._next("VIEW"), name="View 1", layout="TABLE_LAYOUT")
         ]
         return project
 
@@ -96,6 +101,24 @@ class FakeGitHub:
                 item.values[field.name] = value
                 return
         raise KeyError(item_id)
+
+    def list_views(self, project_id: str) -> list[View]:
+        return list(self._views.get(project_id, []))
+
+    def create_view(self, project_id: str, name: str, layout: str) -> View:
+        view = View(id=self._next("VIEW"), name=name, layout=layout)
+        self._views.setdefault(project_id, []).append(view)
+        return view
+
+    def update_view(
+        self, project_id: str, view_id: str, filter: str, visible_field_ids: list
+    ) -> None:
+        for view in self._views.get(project_id, []):
+            if view.id == view_id:
+                view.filter = filter
+                view.visible_field_ids = list(visible_field_ids)
+                return
+        raise KeyError(view_id)
 
     # --- test helpers ---
     def projects_for(self, owner: str) -> list[Project]:

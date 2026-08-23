@@ -101,6 +101,38 @@ def project_title(repo: str) -> str:
 
 
 @dataclass(frozen=True)
+class ViewSpec:
+    """A GitHub Project view. Layout, filter, and visible fields are API-automatable;
+    custom grouping is not exposed by the API (a Board layout auto-groups by Status)."""
+
+    name: str
+    layout: str  # "BOARD_LAYOUT" | "TABLE_LAYOUT"
+    filter: str = ""
+    visible_fields: tuple = ()  # field names to show (TABLE views)
+
+
+REQUIRED_VIEWS: list[ViewSpec] = [
+    # Board auto-groups by the Status field → the Backlog..Done workflow columns.
+    ViewSpec("Delivery Board", "BOARD_LAYOUT"),
+    ViewSpec(
+        "Current Work", "TABLE_LAYOUT",
+        filter="-status:Done,Accepted",
+        visible_fields=("Build / Slice", "Current Actor", "Next Actor", "Review Status", "Priority"),
+    ),
+    ViewSpec(
+        "Decisions / Blockers", "TABLE_LAYOUT",
+        filter="label:aip:human-decision,aip:blocked",
+        visible_fields=("Build / Slice", "Current Actor", "Priority"),
+    ),
+    ViewSpec(
+        "Accepted / History", "TABLE_LAYOUT",
+        filter="status:Accepted,Done",
+        visible_fields=("Build / Slice", "Review Status", "Customer Ready"),
+    ),
+]
+
+
+@dataclass(frozen=True)
 class RequiredLabel:
     name: str
     color: str  # 6-hex, no '#'

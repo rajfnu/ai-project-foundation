@@ -116,22 +116,26 @@ slice, actors, review status, and open human decisions.
 
 
 PROCESS_VIEWS = """\
-# GitHub Project views — one-time manual setup
+# GitHub Project views
 
-`aip` creates the Project and **all custom fields/options** automatically. The GitHub
-Projects (v2) API does not expose reliable creation of *view layouts* (board vs. table,
-grouping, filters, visible columns), so those are the one honest manual step. Create these
-four views once; everything else stays automated and is verified by `aip health`.
+`aip` creates the Project, **all custom fields/options**, and these four **views**
+automatically (layout, filter, and visible columns via the GitHub GraphQL API):
 
-1. **Delivery Board** — layout: Board, group by `Status`.
-   Columns follow the workflow: Backlog → Product Ready → Architecture Ready →
-   Implementing → Review → Fix → Accepted → Customer Testing → Done.
-2. **Current Work** — layout: Table, filter `Status` is not Done/Accepted.
-   Show: Build / Slice, Current Actor, Next Actor, Review Status, Priority.
-3. **Decisions / Blockers** — layout: Table, filter label `aip:human-decision` or
-   `aip:blocked`.
-4. **Accepted / History** — layout: Table, filter `Review Status` is `TECHNICALLY ACCEPTED`
-   or `Status` is Accepted/Done.
+1. **Delivery Board** — Board layout. A Board auto-groups by `Status`, giving the workflow
+   columns: Backlog → Product Ready → Architecture Ready → Implementing → Review → Fix →
+   Accepted → Customer Testing → Done.
+2. **Current Work** — Table, filter `-status:Done,Accepted`.
+   Columns: Build / Slice, Current Actor, Next Actor, Review Status, Priority.
+3. **Decisions / Blockers** — Table, filter `label:aip:human-decision,aip:blocked`.
+4. **Accepted / History** — Table, filter `status:Accepted,Done`.
+
+Views are created **once** and not re-reconciled, so any manual tweaks you make to a view
+survive `aip setup` re-runs. `aip health` verifies each view exists.
+
+## The one honest API limitation
+The Projects (v2) API does not expose *custom grouping* for a view (only the Board layout's
+automatic Status grouping). If you want a Table view grouped by a specific field, set that
+grouping once in the Project UI. Everything else is automated.
 
 The repository (`docs/status/current.yml`) remains the source of truth; the Project is its
 visual projection. See `github-sync.md`.

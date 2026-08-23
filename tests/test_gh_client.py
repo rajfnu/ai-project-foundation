@@ -194,3 +194,32 @@ def test_set_field_value_single_select_resolves_option_id():
     update = next(_query(a) for a in runner.calls if "updateProjectV2ItemFieldValue" in _query(a))
     assert "singleSelectOptionId" in update
     assert any("OPT_impl" in str(a) for a in runner.calls)
+
+
+def test_create_view_uses_create_mutation_with_layout():
+    runner = RecordingRunner([(lambda a: True, json.dumps(
+        {"data": {"createProjectV2View": {"projectV2View": {
+            "id": "V1", "name": "Delivery Board", "layout": "BOARD_LAYOUT"}}}}))])
+    view = GhGitHub(runner=runner).create_view("PVT_1", "Delivery Board", "BOARD_LAYOUT")
+    assert view.id == "V1" and view.layout == "BOARD_LAYOUT"
+    q = _query(runner.calls[0])
+    assert "createProjectV2View" in q and "BOARD_LAYOUT" in q
+    assert _balanced(q)
+
+
+def test_update_view_sets_filter_and_visible_fields():
+    runner = RecordingRunner([(lambda a: True, json.dumps(
+        {"data": {"updateProjectV2View": {"projectV2View": {"id": "V1"}}}}))])
+    GhGitHub(runner=runner).update_view("PVT_1", "V1", "-status:Done", ["F_a", "F_b"])
+    q = _query(runner.calls[0])
+    assert "updateProjectV2View" in q and "visibleFieldIds" in q
+    assert "F_a" in q and "F_b" in q
+    assert _balanced(q)
+
+
+def test_list_views_parses_nodes():
+    runner = RecordingRunner([(lambda a: True, json.dumps(
+        {"data": {"node": {"views": {"nodes": [
+            {"id": "V1", "name": "Delivery Board", "layout": "BOARD_LAYOUT"}]}}}}))])
+    views = GhGitHub(runner=runner).list_views("PVT_1")
+    assert len(views) == 1 and views[0].name == "Delivery Board"

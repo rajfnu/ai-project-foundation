@@ -183,8 +183,9 @@ def run_health(
             )
         )
         field_statuses = [v for k, v in gh_findings.items() if k.startswith("field:")]
-        worst = _worst([f.status for f in field_statuses])
-        checks.append(Check("github_fields", "Project fields", worst))
+        checks.append(Check("github_fields", "Project fields", _worst([f.status for f in field_statuses])))
+        view_statuses = [v for k, v in gh_findings.items() if k.startswith("view:")]
+        checks.append(Check("github_views", "Project views", _worst([f.status for f in view_statuses])))
 
     # invariant + snapshot
     status = _read_status_yml(root)
