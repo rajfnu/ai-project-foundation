@@ -7,7 +7,14 @@ from pathlib import Path
 import typer
 
 from aip import __version__, render
-from aip.engine import run_health, run_setup, run_sync
+from aip.engine import (
+    InvariantError,
+    run_handoff,
+    run_health,
+    run_setup,
+    run_sync,
+    run_upgrade,
+)
 from aip.github.gh import GhGitHub
 from aip.preflight import PreflightError, ensure_gh, resolve_repo
 from aip.standard import STANDARD_VERSION
@@ -94,6 +101,66 @@ def sync(
         f"{verb} Project item '{report.item_title}' — set {len(report.fields_set)} field(s): "
         f"{', '.join(report.fields_set) or '(none)'}"
     )
+
+
+@app.command()
+def upgrade(
+    dry_run: bool = typer.Option(False, "--dry-run", help="Show what would change; modify nothing."),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Apply without an interactive prompt."),
+    no_github: bool = typer.Option(False, "--no-github", help="Only manage repository files."),
+    path: Path = typer.Option(Path("."), "--path", help="Repository root.", show_default=False),
+) -> None:
+    """Bring the repo up to the current AIP standard version (migrations + re-converge)."""
+    client, owner, repo = _prepare(no_github)
+    root = path.resolve()
+
+    preview = run_upgrade(root, client, owner, repo, dry_run=True, github_enabled=not no_github)
+    typer.echo(f"Standard version: {preview.from_version} -> {preview.to_version}")
+    if preview.migrations_run:
+        typer.echo(f"Migrations to run: {', '.join(map(str, preview.migrations_run))}")
+    typer.echo("")
+    typer.echo(render.render_plan(preview.setup))
+
+    if not preview.changed:
+        typer.echo(f"\nAlready at standard version {preview.to_version}. No changes required.")
+        raise typer.Exit(code=0)
+    if dry_run:
+        typer.echo("\nDry run — nothing was changed.")
+        raise typer.Exit(code=0)
+    if not yes and not typer.confirm("\nApply this upgrade?"):
+        typer.echo("Aborted. Nothing was changed.")
+        raise typer.Exit(code=1)
+
+    applied = run_upgrade(root, client, owner, repo, dry_run=False, github_enabled=not no_github)
+    typer.echo(
+        f"\nUpgraded to standard version {applied.to_version} "
+        f"({len(applied.migrations_run)} migration(s), {applied.setup.total_actions} standard change(s))."
+    )
+
+
+@app.command()
+def handoff(
+    event: str = typer.Argument(..., help="ACK | GO | CHECK | FIX | TECHNICALLY-ACCEPTED"),
+    by: str = typer.Option(None, "--by", help="Actor performing the transition (e.g. Reviewer)."),
+    slice_: str = typer.Option(None, "--slice", help="Build / slice this handoff concerns."),
+    note: str = typer.Option(None, "--note", help="Free-text note for the record."),
+    path: Path = typer.Option(Path("."), "--path", help="Repository root.", show_default=False),
+) -> None:
+    """Record a protocol transition: write a handoff record and update current status."""
+    root = path.resolve()
+    try:
+        report = run_handoff(root, event, by=by, slice=slice_, note=note)
+    except (ValueError, InvariantError) as exc:
+        typer.secho(str(exc), fg=typer.colors.RED, err=True)
+        raise typer.Exit(code=2)
+    rel = Path(report.record_path)
+    try:
+        rel = rel.relative_to(root)
+    except ValueError:
+        pass
+    typer.echo(f"Recorded {report.event}. Review status -> {report.review_status}.")
+    typer.echo(f"Handoff: {rel}")
+    typer.echo("Run `aip sync` to reflect this on the GitHub Project board.")
 
 
 @app.command()

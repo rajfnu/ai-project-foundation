@@ -35,6 +35,11 @@ implementation. Acceptance is only valid from a different actor than the impleme
 - **FIX** — independent reviewer found required changes (returns to Developer).
 - **TECHNICALLY ACCEPTED** — independent technical review passed.
 
+Persist each transition with `aip handoff <EVENT> [--by ACTOR] [--slice ...] [--note ...]`.
+It writes a durable record under `docs/handoffs/`, updates `docs/status/current.yml`, and
+refuses `TECHNICALLY ACCEPTED` from the slice's own implementer. Then `aip sync` to update
+the board.
+
 ### Repository is memory, chat is coordination
 Material product decisions, architecture decisions, work orders, CHECK results, FIX
 findings, acceptance results, evidence, and current handoff state MUST be persisted in

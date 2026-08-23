@@ -10,6 +10,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
+import re
+
 import yaml
 
 from aip import state as state_mod
@@ -20,6 +22,7 @@ from aip.github.audit import audit_github
 from aip.github.client import GitHubClient
 from aip.github.plan import GhAction, plan_github_actions
 from aip.plan import Action, plan_file_actions
+from aip.standard import STANDARD_VERSION
 
 
 # --- setup ---------------------------------------------------------------------------
@@ -261,3 +264,173 @@ def _worst(statuses: list[Status]) -> Status:
     if any(s is Status.PARTIAL for s in statuses):
         return Status.PARTIAL
     return Status.PRESENT
+
+
+# --- handoff (protocol transitions) ---------------------------------------------------
+
+class InvariantError(RuntimeError):
+    """Raised when a transition would violate the independent-review invariant."""
+
+
+# Canonical events and the status changes each implies. Roles are structural: the
+# Developer implements; the Reviewer (the architect/reviewer role) independently accepts.
+_EVENT_TRANSITIONS = {
+    "ACK": {"review_status": "ACK"},
+    "GO": {"review_status": "GO", "implementer": "Developer",
+           "current_actor": "Developer", "next_actor": "Reviewer"},
+    "CHECK": {"review_status": "CHECK", "current_actor": "Developer", "next_actor": "Reviewer"},
+    "FIX": {"review_status": "FIX", "current_actor": "Reviewer", "next_actor": "Developer"},
+    "TECHNICALLY ACCEPTED": {"review_status": "TECHNICALLY ACCEPTED",
+                             "current_actor": "Reviewer", "next_actor": "Human"},
+}
+
+_EVENT_ALIASES = {
+    "ACCEPTED": "TECHNICALLY ACCEPTED",
+    "TECHNICALLY-ACCEPTED": "TECHNICALLY ACCEPTED",
+    "TECHNICALLY_ACCEPTED": "TECHNICALLY ACCEPTED",
+}
+
+
+@dataclass
+class HandoffReport:
+    record_path: str
+    event: str
+    review_status: str
+
+
+def _normalize_event(event: str) -> str:
+    key = " ".join(event.strip().upper().split())
+    key = _EVENT_ALIASES.get(key.replace(" ", "-"), key)
+    if key not in _EVENT_TRANSITIONS:
+        valid = ", ".join(_EVENT_TRANSITIONS)
+        raise ValueError(f"unknown event {event!r}; valid events: {valid}")
+    return key
+
+
+def _yaml_scalar(value) -> str:
+    if value is None:
+        return "null"
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    return '"' + str(value).replace('"', '\\"') + '"'
+
+
+def _update_status_yml(root: Path, updates: dict) -> None:
+    path = root / "docs/status/current.yml"
+    text = path.read_text() if path.is_file() else ""
+    for key, value in updates.items():
+        line = f"{key}: {_yaml_scalar(value)}"
+        if re.search(rf"(?m)^{re.escape(key)}:.*$", text):
+            text = re.sub(rf"(?m)^{re.escape(key)}:.*$", line, text)
+        else:
+            text = (text + ("" if text.endswith("\n") or text == "" else "\n")) + line + "\n"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text)
+
+
+def run_handoff(
+    root: Path,
+    event: str,
+    by: Optional[str] = None,
+    slice: Optional[str] = None,
+    note: Optional[str] = None,
+    timestamp: Optional[str] = None,
+) -> HandoffReport:
+    ev = _normalize_event(event)
+    status = _read_status_yml(root)
+
+    updates = dict(_EVENT_TRANSITIONS[ev])
+    if slice:
+        updates["build_slice"] = slice
+
+    if ev == "TECHNICALLY ACCEPTED":
+        acceptor = by or "Reviewer"
+        implementer = status.get("implementer")
+        if implementer and acceptor == implementer:
+            raise InvariantError(
+                f"{acceptor} implemented this slice and cannot technically accept it. "
+                "Independent review requires a different actor."
+            )
+        updates["acceptor"] = acceptor
+
+    _update_status_yml(root, updates)
+
+    ts = timestamp or _utc_timestamp()
+    slice_name = slice or status.get("build_slice") or "Current Slice"
+    slug = ev.lower().replace(" ", "-")
+    handoffs_dir = root / "docs/handoffs"
+    handoffs_dir.mkdir(parents=True, exist_ok=True)
+    record_path = handoffs_dir / f"{ts}-{slug}.md"
+    counter = 2
+    while record_path.exists():  # avoid clobbering a same-second, same-event record
+        record_path = handoffs_dir / f"{ts}-{slug}-{counter}.md"
+        counter += 1
+    record_path.write_text(
+        f"# Handoff: {ev} — {slice_name}\n\n"
+        f"- Event: {ev}\n"
+        f"- Slice: {slice_name}\n"
+        f"- By: {by or '-'}\n"
+        f"- Timestamp: {ts}\n"
+        f"- Resulting review status: {updates['review_status']}\n\n"
+        f"## Note\n{note or '(none)'}\n"
+    )
+    return HandoffReport(str(record_path), ev, updates["review_status"])
+
+
+def _utc_timestamp() -> str:
+    from datetime import datetime, timezone
+
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H%M%SZ")
+
+
+# --- upgrade --------------------------------------------------------------------------
+
+# Registry of standard migrations: version N -> a callable(root) that migrates a repo from
+# version N-1 to N. Empty at standard version 1; future versions register their steps here.
+MIGRATIONS: dict = {}
+
+
+def migrations_to_run(current: int, target: int, registry: dict = MIGRATIONS) -> list:
+    """Ordered list of migration versions to apply to go from `current` to `target`."""
+    return sorted(v for v in registry if current < v <= target)
+
+
+@dataclass
+class UpgradeReport:
+    from_version: int
+    to_version: int
+    applied: bool
+    setup: SetupReport
+    migrations_run: list
+
+    @property
+    def changed(self) -> bool:
+        return self.from_version != self.to_version or self.setup.total_actions > 0
+
+
+def run_upgrade(
+    root: Path,
+    client: Optional[GitHubClient],
+    owner: str,
+    repo: str,
+    dry_run: bool,
+    github_enabled: bool = True,
+) -> UpgradeReport:
+    from aip.config import read_config, set_standard_version
+
+    current = read_config(root).standard_version
+    target = STANDARD_VERSION
+    pending = migrations_to_run(current, target)
+
+    # Re-converge the standard (adds new files/fields/views, refreshes managed blocks).
+    setup_report = run_setup(root, client, owner, repo, dry_run=dry_run, github_enabled=github_enabled)
+
+    if dry_run:
+        return UpgradeReport(current, target, applied=False, setup=setup_report, migrations_run=pending)
+
+    for version in pending:
+        MIGRATIONS[version](root)
+    if current != target:
+        set_standard_version(root, target)  # version of record lives in config
+
+    return UpgradeReport(current, target, applied=True, setup=setup_report, migrations_run=pending)

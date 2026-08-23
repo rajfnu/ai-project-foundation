@@ -6,6 +6,7 @@ configuration. Swapping the two agents is a config edit, never a code change.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -42,3 +43,15 @@ def read_config(root: Path) -> Config:
         ),
         raw=data,
     )
+
+
+def set_standard_version(root: Path, version: int) -> None:
+    """Update standard_version in .aip/config.yml, preserving comments and layout."""
+    path = root / CONFIG_PATH
+    text = path.read_text() if path.is_file() else ""
+    line = f"standard_version: {version}"
+    if re.search(r"(?m)^standard_version:.*$", text):
+        text = re.sub(r"(?m)^standard_version:.*$", line, text)
+    else:
+        text = line + "\n" + text
+    path.write_text(text)

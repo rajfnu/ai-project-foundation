@@ -37,3 +37,36 @@ def test_health_exit_codes(tmp_path: Path):
     healthy = runner.invoke(app, ["health", "--no-github", "--path", str(tmp_path)])
     assert healthy.exit_code == 0
     assert "COMPLIANT" in healthy.stdout
+
+
+def test_handoff_cli_records_and_enforces_invariant(tmp_path: Path):
+    runner.invoke(app, ["setup", "--no-github", "--yes", "--path", str(tmp_path)])
+
+    go = runner.invoke(app, ["handoff", "GO", "--slice", "B1", "--path", str(tmp_path)])
+    assert go.exit_code == 0 and "GO" in go.stdout
+    assert list((tmp_path / "docs/handoffs").glob("*.md"))
+
+    # self-acceptance refused
+    bad = runner.invoke(app, ["handoff", "TECHNICALLY-ACCEPTED", "--by", "Developer", "--path", str(tmp_path)])
+    assert bad.exit_code == 2
+
+    # independent acceptance ok
+    ok = runner.invoke(app, ["handoff", "ACCEPTED", "--by", "Reviewer", "--path", str(tmp_path)])
+    assert ok.exit_code == 0
+
+    bogus = runner.invoke(app, ["handoff", "NOPE", "--path", str(tmp_path)])
+    assert bogus.exit_code == 2
+
+
+def test_upgrade_cli_bumps_version(tmp_path: Path):
+    runner.invoke(app, ["setup", "--no-github", "--yes", "--path", str(tmp_path)])
+    import re
+    cfg = tmp_path / ".aip/config.yml"
+    cfg.write_text(re.sub(r"(?m)^standard_version:.*$", "standard_version: 0", cfg.read_text()))
+
+    result = runner.invoke(app, ["upgrade", "--no-github", "--yes", "--path", str(tmp_path)])
+    assert result.exit_code == 0
+    assert "Upgraded to standard version" in result.stdout
+
+    again = runner.invoke(app, ["upgrade", "--no-github", "--yes", "--path", str(tmp_path)])
+    assert "Already at standard version" in again.stdout
