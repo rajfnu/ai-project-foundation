@@ -9,7 +9,10 @@ copies no customer data, secrets, prompts, or application code.
 
 ## What it establishes
 
-- **Two-role delivery discipline** — Architect/Reviewer ⇄ Developer, with a hard
+- **A complete project foundation** — guided product brief plus Core, Requirements,
+  Acceptance, Architecture, Plan, Constraints, Guardrails, Decisions and Runbook templates.
+- **Role-separated delivery discipline** — Lead Orchestrator, Product Owner, Architect,
+  Developer and Independent Reviewer, with a hard
   invariant: *the agent that implements a slice cannot technically accept its own work.*
   Which model/provider fills each role is configuration, not code.
 - **Repository as memory** — product, architecture, decisions, current slice, actors,
@@ -43,6 +46,7 @@ For local development instead, use an editable install: `uv sync && uv pip insta
 ```bash
 cd your-repo                # a new/empty repo OR an existing project
 
+aip init                   # ten-question guided project foundation interview
 aip setup --dry-run        # audit + see exactly what would change (mutates nothing)
 aip setup                  # review the plan, confirm, and apply only what's missing
 aip health                 # confirm COMPLIANT
@@ -60,6 +64,7 @@ parts of `AGENTS.md`/`CLAUDE.md`. Use `--dry-run` first to preview.
 ## Commands
 
 ```bash
+aip init    [--path DIR] [ten optional non-interactive answer flags]
 aip setup   [--dry-run] [--yes] [--no-github] [--path DIR]
 aip sync    [--path DIR]
 aip handoff <ACK|GO|CHECK|FIX|TECHNICALLY-ACCEPTED> [--by ACTOR] [--slice S] [--note N]
@@ -68,6 +73,9 @@ aip health  [--no-github] [--path DIR]
 aip version
 ```
 
+- `aip init` establishes the Standard v2 files and conducts a ten-question interview covering
+  objective, users, scope, exclusions, stack, deployment, data, quality and human authority.
+  It writes `.context/product/PROJECT_BRIEF.md` and refuses to overwrite an initialized brief.
 - `aip setup` audits the repo against the AIP standard and adds **only what is missing**.
   It is idempotent (a second run reports `Already compliant`) and never overwrites human
   content — `AGENTS.md`/`CLAUDE.md` are edited only inside a fenced `AIP:BEGIN…AIP:END`
@@ -102,23 +110,34 @@ visual projection (`docs/process/github-sync.md`).
 
 ## Configuration
 
-`.aip/config.yml` binds agents to roles and toggles workflow switches. Swapping which
-agent is Architect vs. Developer is a config edit — never a rewrite.
+`.aip/config.yml` binds agents to roles and declares provider references, tools, notification
+adapters and workflow switches. It contains no credentials: `secret_ref` points to an environment
+variable, keychain or vault. Swapping a model or provider is configuration — never a rewrite.
 
 ```yaml
-standard_version: 1
+standard_version: 2
 roles:
-  architect_reviewer: { agent: opus }   # example — any model/provider
-  developer:          { agent: codex }
+  lead_orchestrator:    { provider: anthropic, model: configurable }
+  product_owner:        { provider: anthropic, model: configurable }
+  architect:            { provider: anthropic, model: configurable }
+  developer:            { agent: codex, provider: openai, model: configurable }
+  independent_reviewer: { provider: anthropic, model: configurable }
+providers:
+  anthropic: { secret_ref: env:ANTHROPIC_API_KEY }
+  openai:    { secret_ref: env:OPENAI_API_KEY }
 github:   { project: true }
 workflow: { independent_review_required: true }
 ```
+
+Standard v2 remains an operating-model and control-plane foundation. Provider execution,
+long-running agent supervision and notification delivery are the next runtime layer; the v2
+configuration gives those adapters a stable, non-secret contract.
 
 ## Development
 
 ```bash
 uv sync
-uv run pytest        # 73 tests, offline (GitHub behind a fake client)
+uv run pytest        # 78 tests, offline (GitHub behind a fake client)
 uv run aip --help
 ```
 

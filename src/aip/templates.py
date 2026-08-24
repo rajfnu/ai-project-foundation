@@ -19,11 +19,15 @@ This repository follows the **AI Project Foundation** operating model. This bloc
 shared authoritative instruction for every coding agent working here.
 
 ### Roles (not models)
-Two interchangeable engineering roles. Which model/provider fills each role is set in
+Role-separated delivery team. Which model/provider fills each role is set in
 `.aip/config.yml` — roles are swappable without changing this operating model.
 
-- **Architect / Reviewer** — plans slices, performs independent review, accepts or rejects.
+- **Lead Orchestrator** — coordinates delivery and batches genuine human decisions.
+- **Product Owner** — owns product intent and observable acceptance.
+- **Architect** — owns boundaries, decisions, work orders and technical direction.
 - **Developer** — implements the authorized slice.
+- **Independent Reviewer** — reproduces evidence and accepts or rejects technical work.
+- **Security Reviewer / Deployment Operator** — optional specialist roles with bounded authority.
 
 **Invariant:** the agent that implements a slice MUST NOT technically accept its own
 implementation. Acceptance is only valid from a different actor than the implementer.
@@ -55,6 +59,11 @@ project state from files alone:
 
 The GitHub Project is the human's visual projection of `/docs/status/`; the repository
 is the source of truth. See `docs/process/` for the sync rule.
+
+### Required project definition
+Read `CORE.md`, `REQUIREMENTS.md`, `ACCEPTANCE.md`, `ARCHITECTURE.md`, `PLAN.md`,
+`CONSTRAINTS.md`, `GUARDRAILS.md`, `DECISIONS.md`, and `RUNBOOK.md` before substantial work.
+Do not silently invent a durable contract when one of these records is missing or contradictory.
 """
 
 CLAUDE_MANAGED_BODY = """\
@@ -146,6 +155,196 @@ The repository (`docs/status/current.yml`) remains the source of truth; the Proj
 visual projection. See `github-sync.md`.
 """
 
+CORE = """\
+# Product Core
+
+Status: **DRAFT — complete before implementation**
+
+## Purpose
+<!-- One sentence: who is helped, what problem is solved, and what outcome changes? -->
+
+## Users and stakeholders
+- Primary user:
+- Decision owner:
+- Operators:
+
+## Product vocabulary
+| Term | Meaning |
+| --- | --- |
+| Example | Replace with the project's canonical language. |
+
+## In scope
+-
+
+## Out of scope
+-
+
+## Success
+<!-- State measurable business and user outcomes, not a feature inventory. -->
+"""
+
+REQUIREMENTS = """\
+# Requirements
+
+Status: **DRAFT — each requirement needs identity, priority and acceptance mapping**
+
+## Functional requirements
+| ID | Priority | Requirement | Acceptance criterion |
+| --- | --- | --- | --- |
+| FR-001 | MUST | Describe observable behavior. | AC-001 |
+
+## Non-functional requirements
+| ID | Category | Requirement | Measurement |
+| --- | --- | --- | --- |
+| NFR-001 | Security | Replace with a testable control. | Replace with evidence. |
+
+## Traceability
+<!-- Every MUST requirement maps to acceptance evidence before release. -->
+"""
+
+ACCEPTANCE = """\
+# Acceptance
+
+Status: **DRAFT — observable results, not implementation claims**
+
+| ID | Requirement | Observable result | Evidence | Owner |
+| --- | --- | --- | --- | --- |
+| AC-001 | FR-001 | Describe what a user or operator can verify. | Not tested | Human |
+
+## Release gates
+- Independent technical review completed.
+- Required security and confidentiality negatives pass.
+- Rollback is documented and rehearsed in proportion to risk.
+- Human product acceptance is recorded separately from technical acceptance.
+"""
+
+ARCHITECTURE = """\
+# Architecture
+
+Status: **DRAFT — architect-owned**
+
+## Context and boundaries
+<!-- Show users, external systems, trust boundaries and data movement. -->
+
+## Components and ownership
+| Component | Responsibility | Canonical data | Runtime |
+| --- | --- | --- | --- |
+
+## Runtime flows
+1. Replace with the principal request or event flow.
+
+## Security and failure model
+- Authentication and access control:
+- Secret handling:
+- Isolation:
+- Degraded behavior:
+
+## Architecture decisions
+<!-- Link durable decisions from DECISIONS.md or .context/decisions/. -->
+"""
+
+DELIVERY_PLAN = """\
+# Delivery Plan
+
+Status: **DRAFT — only one step may be in progress**
+
+| Step | Outcome | Owner | Status | Exit evidence |
+| --- | --- | --- | --- | --- |
+| 1 | Establish the smallest end-to-end slice. | Architect | Pending | Work order |
+
+## Critical path
+-
+
+## Parallel work
+-
+
+## Human decision points
+-
+"""
+
+CONSTRAINTS = """\
+# Constraints and Considerations
+
+| ID | Type | Constraint | Consequence | Owner |
+| --- | --- | --- | --- | --- |
+| CON-001 | Technical | Replace with a real constraint. | Describe the design impact. | Human |
+
+## Assumptions to verify
+-
+
+## Dependencies
+-
+"""
+
+GUARDRAILS = """\
+# Guardrails
+
+These boundaries apply to every human and automated actor.
+
+## Always require explicit human authority
+- Production deployment, destructive data changes and customer access.
+- Material risk acceptance and external communication.
+- Provider approval for confidential or regulated data.
+
+## Never
+- Commit credentials, customer data or private prompts.
+- Let an implementer approve its own work.
+- Claim a test, deployment or customer result without reproducible evidence.
+- Weaken a security or acceptance gate to meet a date without recorded human authority.
+
+## Project-specific controls
+- Data classification:
+- Approved environments:
+- Prohibited actions:
+"""
+
+DECISIONS = """\
+# Decision Register
+
+| ID | Status | Decision | Rationale | Owner | Date |
+| --- | --- | --- | --- | --- | --- |
+| D-001 | Proposed | Replace with the first material decision. | Why it matters. | Human | YYYY-MM-DD |
+
+Accepted decisions are immutable records. Supersede them with a new decision rather than editing history.
+"""
+
+RUNBOOK = """\
+# Runbook
+
+Status: **DRAFT — commands must be reproducible from a clean environment**
+
+## Prerequisites
+-
+
+## Build
+```text
+Replace with commands.
+```
+
+## Test
+```text
+Replace with commands and expected evidence.
+```
+
+## Deploy
+<!-- Name approvals required before external mutation. -->
+
+## Health and smoke checks
+-
+
+## Rollback and recovery
+-
+"""
+
+PROJECT_BRIEF = """\
+# Project Brief
+
+Status: **NOT INITIALIZED**
+
+Run `aip init` to answer the ten foundation questions. The command replaces this generated
+placeholder only; it never overwrites an initialized brief.
+"""
+
 
 def config_yaml() -> str:
     return f"""\
@@ -154,10 +353,27 @@ def config_yaml() -> str:
 standard_version: {STANDARD_VERSION}
 
 roles:
-  architect_reviewer:
-    agent: opus       # example — any model/provider; swap freely
-  developer:
-    agent: codex      # example — any model/provider; swap freely
+  lead_orchestrator: {{ provider: anthropic, model: configurable }}
+  product_owner:     {{ provider: anthropic, model: configurable }}
+  architect:         {{ provider: anthropic, model: configurable }}
+  developer:         {{ agent: codex, provider: openai, model: configurable }}
+  independent_reviewer: {{ provider: anthropic, model: configurable }}
+  # Backward-compatible aliases used by the v1 handoff protocol.
+  architect_reviewer: {{ agent: opus }}
+
+# Secret references only. Never put API keys in this file.
+providers:
+  anthropic: {{ secret_ref: env:ANTHROPIC_API_KEY }}
+  openai:    {{ secret_ref: env:OPENAI_API_KEY }}
+
+tools:
+  shell:  {{ enabled: true }}
+  github: {{ enabled: true }}
+  browser: {{ enabled: false }}
+  mcp: {{ enabled: false, servers: [] }}
+
+notifications:
+  default: {{ adapter: none }}
 
 github:
   project: true       # create/adopt a GitHub Project for visualization
@@ -186,6 +402,16 @@ PLAIN_TEMPLATES: dict[str, str] = {
     "status_current_yml": STATUS_CURRENT_YML,
     "process_sync": PROCESS_SYNC,
     "process_views": PROCESS_VIEWS,
+    "core": CORE,
+    "requirements": REQUIREMENTS,
+    "acceptance": ACCEPTANCE,
+    "architecture": ARCHITECTURE,
+    "delivery_plan": DELIVERY_PLAN,
+    "constraints": CONSTRAINTS,
+    "guardrails": GUARDRAILS,
+    "decisions": DECISIONS,
+    "runbook": RUNBOOK,
+    "project_brief": PROJECT_BRIEF,
 }
 
 

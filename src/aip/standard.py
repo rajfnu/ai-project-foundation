@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 # Bump when the standard's required shape changes in a way that adopted repos should migrate to.
-STANDARD_VERSION = 1
+STANDARD_VERSION = 2
 
 
 @dataclass(frozen=True)
@@ -39,6 +39,16 @@ REQUIRED_PATHS: list[RequiredPath] = [
     RequiredPath(".context/product/", ".context/product", is_dir=True),
     RequiredPath(".context/architecture/", ".context/architecture", is_dir=True),
     RequiredPath(".context/decisions/", ".context/decisions", is_dir=True),
+    RequiredPath("CORE.md", "CORE.md", template="core"),
+    RequiredPath("REQUIREMENTS.md", "REQUIREMENTS.md", template="requirements"),
+    RequiredPath("ACCEPTANCE.md", "ACCEPTANCE.md", template="acceptance"),
+    RequiredPath("ARCHITECTURE.md", "ARCHITECTURE.md", template="architecture"),
+    RequiredPath("PLAN.md", "PLAN.md", template="delivery_plan"),
+    RequiredPath("CONSTRAINTS.md", "CONSTRAINTS.md", template="constraints"),
+    RequiredPath("GUARDRAILS.md", "GUARDRAILS.md", template="guardrails"),
+    RequiredPath("DECISIONS.md", "DECISIONS.md", template="decisions"),
+    RequiredPath("RUNBOOK.md", "RUNBOOK.md", template="runbook"),
+    RequiredPath(".context/product/PROJECT_BRIEF.md", ".context/product/PROJECT_BRIEF.md", template="project_brief"),
     RequiredPath("docs/status/current.md", "docs/status/current.md", template="status_current_md"),
     RequiredPath("docs/status/current.yml", "docs/status/current.yml", template="status_current_yml"),
     RequiredPath("docs/handoffs/", "docs/handoffs", is_dir=True),

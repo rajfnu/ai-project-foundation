@@ -1,8 +1,4 @@
-"""Read .aip/config.yml — the role<->agent binding and workflow switches.
-
-Roles are structural and fixed; the agent (model/provider) filling each role is pure
-configuration. Swapping the two agents is a config edit, never a code change.
-"""
+"""Read the non-secret role, provider, tool and workflow configuration."""
 
 from __future__ import annotations
 
@@ -13,6 +9,13 @@ from pathlib import Path
 import yaml
 
 CONFIG_PATH = ".aip/config.yml"
+REQUIRED_ROLES = (
+    "lead_orchestrator",
+    "product_owner",
+    "architect",
+    "developer",
+    "independent_reviewer",
+)
 
 
 @dataclass(frozen=True)
@@ -22,6 +25,10 @@ class Config:
     developer_agent: str | None
     github_project: bool
     independent_review_required: bool
+    roles: dict
+    providers: dict
+    tools: dict
+    notifications: dict
     raw: dict
 
 
@@ -41,6 +48,10 @@ def read_config(root: Path) -> Config:
         independent_review_required=bool(
             (data.get("workflow") or {}).get("independent_review_required", True)
         ),
+        roles=roles,
+        providers=data.get("providers") or {},
+        tools=data.get("tools") or {},
+        notifications=data.get("notifications") or {},
         raw=data,
     )
 
@@ -55,3 +66,19 @@ def set_standard_version(root: Path, version: int) -> None:
     else:
         text = line + "\n" + text
     path.write_text(text)
+
+
+def validate_config(config: Config) -> list[str]:
+    """Return actionable configuration defects without resolving any secret."""
+    defects = [f"missing role: {role}" for role in REQUIRED_ROLES if role not in config.roles]
+    for name, provider in config.providers.items():
+        if not isinstance(provider, dict):
+            defects.append(f"provider {name} must be a mapping")
+            continue
+        secret_ref = provider.get("secret_ref")
+        if secret_ref and not str(secret_ref).startswith(("env:", "keychain:", "vault:")):
+            defects.append(f"provider {name} secret_ref must use env:, keychain:, or vault:")
+        forbidden = {"api_key", "token", "secret", "password"}.intersection(provider)
+        if forbidden:
+            defects.append(f"provider {name} contains inline secret field(s): {', '.join(sorted(forbidden))}")
+    return defects

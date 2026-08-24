@@ -18,6 +18,7 @@ from aip.engine import (
 from aip.github.gh import GhGitHub
 from aip.preflight import PreflightError, ensure_gh, resolve_repo
 from aip.standard import STANDARD_VERSION
+from aip.bootstrap import ProjectAnswers, write_project_brief
 
 app = typer.Typer(
     add_completion=False,
@@ -30,6 +31,48 @@ app = typer.Typer(
 def version() -> None:
     """Show the aip CLI version and the AIP standard version it implements."""
     typer.echo(f"aip {__version__} (standard {STANDARD_VERSION})")
+
+
+def _answer(value: str | None, prompt: str) -> str:
+    return value.strip() if value and value.strip() else typer.prompt(prompt).strip()
+
+
+@app.command("init")
+def init_project(
+    name: str = typer.Option(None, help="Project or product name."),
+    objective: str = typer.Option(None, help="Problem and desired outcome."),
+    users: str = typer.Option(None, help="Primary users and decision owners."),
+    scope: str = typer.Option(None, help="Initial in-scope capability."),
+    out_of_scope: str = typer.Option(None, "--out-of-scope", help="Explicit exclusions."),
+    stack: str = typer.Option(None, help="Technology and existing assets."),
+    deployment: str = typer.Option(None, help="Target runtime and environments."),
+    data_classification: str = typer.Option(None, "--data", help="Data sensitivity and handling."),
+    quality_gates: str = typer.Option(None, "--quality", help="Tests and acceptance expectations."),
+    human_approvals: str = typer.Option(None, "--approvals", help="Actions reserved for humans."),
+    path: Path = typer.Option(Path("."), "--path", help="Repository root.", show_default=False),
+) -> None:
+    """Establish Standard v2 and conduct the ten-question project foundation interview."""
+    root = path.resolve()
+    run_setup(root, None, "", "", dry_run=False, github_enabled=False)
+    answers = ProjectAnswers(
+        name=_answer(name, "1/10 Project name"),
+        objective=_answer(objective, "2/10 Problem and desired outcome"),
+        users=_answer(users, "3/10 Primary users and decision owners"),
+        scope=_answer(scope, "4/10 Initial scope"),
+        out_of_scope=_answer(out_of_scope, "5/10 Explicitly out of scope"),
+        stack=_answer(stack, "6/10 Technology and existing assets"),
+        deployment=_answer(deployment, "7/10 Deployment target"),
+        data_classification=_answer(data_classification, "8/10 Data classification"),
+        quality_gates=_answer(quality_gates, "9/10 Quality and acceptance gates"),
+        human_approvals=_answer(human_approvals, "10/10 Human approvals"),
+    )
+    try:
+        brief = write_project_brief(root, answers)
+    except FileExistsError as exc:
+        typer.secho(str(exc), fg=typer.colors.RED, err=True)
+        raise typer.Exit(code=2)
+    typer.echo(f"Initialized {answers.name}. Project brief: {brief.relative_to(root)}")
+    typer.echo("Review the generated foundation, then run `aip setup` to connect GitHub.")
 
 
 def _prepare(no_github: bool):
