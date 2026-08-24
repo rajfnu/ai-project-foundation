@@ -194,6 +194,17 @@ def run_health(
     status = _read_status_yml(root)
     checks.append(_independent_review_check(status))
 
+    from aip.config import read_config, validate_config
+    config_defects = validate_config(read_config(root))
+    checks.append(
+        Check(
+            "configuration",
+            "Agent-team configuration",
+            Status.PRESENT if not config_defects else Status.MISSING,
+            "; ".join(config_defects),
+        )
+    )
+
     return HealthReport(checks=checks, snapshot=status)
 
 
@@ -387,7 +398,31 @@ def _utc_timestamp() -> str:
 
 # Registry of standard migrations: version N -> a callable(root) that migrates a repo from
 # version N-1 to N. Empty at standard version 1; future versions register their steps here.
-MIGRATIONS: dict = {}
+def _migrate_v2(root: Path) -> None:
+    """Expand a v1 two-role config into the v2 team without storing credentials."""
+    from aip.config import CONFIG_PATH
+    path = root / CONFIG_PATH
+    data = yaml.safe_load(path.read_text()) if path.is_file() else {}
+    data = data if isinstance(data, dict) else {}
+    roles = data.setdefault("roles", {})
+    architect_agent = (roles.get("architect_reviewer") or {}).get("agent", "opus")
+    developer_agent = (roles.get("developer") or {}).get("agent", "codex")
+    roles.setdefault("lead_orchestrator", {"provider": "anthropic", "model": "configurable"})
+    roles.setdefault("product_owner", {"provider": "anthropic", "model": "configurable"})
+    roles.setdefault("architect", {"provider": "anthropic", "model": "configurable"})
+    roles.setdefault("developer", {"agent": developer_agent, "provider": "openai", "model": "configurable"})
+    roles.setdefault("independent_reviewer", {"provider": "anthropic", "model": "configurable"})
+    roles.setdefault("architect_reviewer", {"agent": architect_agent})
+    data.setdefault("providers", {
+        "anthropic": {"secret_ref": "env:ANTHROPIC_API_KEY"},
+        "openai": {"secret_ref": "env:OPENAI_API_KEY"},
+    })
+    data.setdefault("tools", {"shell": {"enabled": True}, "github": {"enabled": True}})
+    data.setdefault("notifications", {"default": {"adapter": "none"}})
+    path.write_text(yaml.safe_dump(data, sort_keys=False))
+
+
+MIGRATIONS: dict = {2: _migrate_v2}
 
 
 def migrations_to_run(current: int, target: int, registry: dict = MIGRATIONS) -> list:
